@@ -3533,7 +3533,12 @@ const volAI = detect24hVolumeLocationAI(
   mappedK,
   mainTrend || "neutral",
   marketDomSide
-);
+) || {
+  meaning: "Neutral",
+  intent: "Neutral",
+  bias: "Neutral",
+  futureOutcome: "NEUTRAL (NO EDGE)"
+};
 
 
 const lastVol = v.at(-1);
