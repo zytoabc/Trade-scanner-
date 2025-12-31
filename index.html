@@ -3451,7 +3451,12 @@ const volAI = detect24hVolumeLocationAI(
   mappedK,
   mainTrend || "neutral",
   marketDomSide
-);
+) || {
+  meaning: "Neutral",
+  intent: "Neutral",
+  bias: "Neutral",
+  futureOutcome: "NEUTRAL (NO EDGE)"
+};
 
 
 const lastVol = v.at(-1);
@@ -3955,13 +3960,6 @@ const postVolBreakRSIConfirmSafe =
 
   const fundingRate = await getFundingRate(sym);
 
-  const volAI =
-  detect24hVolumeLocationAI(...) ?? {
-    meaning: "Neutral",
-    intent: "Neutral",
-    bias: "Neutral",
-    futureOutcome: "NEUTRAL (NO EDGE)"
-  };
 
   
   const aiVerdict = getAIFinalVerdict({
