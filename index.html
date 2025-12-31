@@ -1038,6 +1038,10 @@ function computeHistoricalBias(k, idx, all, htfTrend) {
     return "Neutral";
   }
 
+  return "Neutral";
+}
+  
+
   
   
   function computeRawBias(k, idx, all) {
@@ -5125,7 +5129,7 @@ async function processBiasAndFlip() {
 }
 
 /* Seed if needed, then process */
-if (!BIAS_HISTORY[d.sym] || BIAS_HISTORY[d.sym].length < 96) {
+if (!RAW_BIAS_HISTORY[d.sym] || RAW_BIAS_HISTORY[d.sym].length < 96) {
   seedBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
 } else {
   processBiasAndFlip();
