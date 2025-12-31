@@ -5120,7 +5120,7 @@ const canvas = card.querySelector(".bias-chart");
 if (!canvas) return;
 
 async function processBiasAndFlip() {
-  const series = compressBias15m(d.sym).slice(-96);
+  const series = computeHistoricalBias(d.sym).slice(-96);
   const flipAttempt = detectPolarityFlipAttempt(series);
 
   if (flipAttempt) {
