@@ -757,16 +757,7 @@ function compressBias15m(symbol) {
 }
 
   const RAW_BIAS_HISTORY = {};
-
-  function computeRawBias(k, idx, all) {
-  const close = +k[4];
-  const open  = +k[1];
-  const prev  = idx > 0 ? +all[idx - 1][4] : close;
-
-  if (close > prev) return +1;
-  if (close < prev) return -1;
-  return 0;
-  }
+  
 
   function compressRawBias15m(sym) {
   const data = RAW_BIAS_HISTORY[sym];
@@ -792,6 +783,7 @@ function compressBias15m(symbol) {
       };
     });
 }
+  
 
   /* ================= BIAS → Y AXIS MAP ================= */
 const BIAS_Y_MAP = {
@@ -4647,8 +4639,8 @@ const marketDomIcon =
 
 const rawSeries = compressRawBias15m(d.sym).slice(-96);
 
-const flipAttempt = detectPolarityFlipAttempt(rawSeries);
-const flipAttemptCount = countPolarityFlipAttempts(rawSeries);
+flipAttempt = detectPolarityFlipAttempt(rawSeries);
+flipAttemptCount = countPolarityFlipAttempts(rawSeries);
 
     
     
@@ -5128,8 +5120,8 @@ const canvas = card.querySelector(".bias-chart");
 if (!canvas) return;
 
 async function processBiasAndFlip() {
-  const rawSeries = compressRawBias15m(d.sym).slice(-96);
-  const flipAttempt = detectPolarityFlipAttempt(rawSeries);
+  const series = compressRawBias15m(d.sym).slice(-96);
+  const flipAttempt = detectPolarityFlipAttempt(series);
 
   if (flipAttempt) {
     registerFlipAttempt(d.sym, flipAttempt, d.mainTrend);
@@ -5149,8 +5141,8 @@ async function processBiasAndFlip() {
 }
 
 /* Seed if needed, then process */
-if (!BIAS_HISTORY[d.sym] || BIAS_HISTORY[d.sym].length < 96) {
-  seedRawBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
+if (!RAW_BIAS_HISTORY[d.sym] || RAW_BIAS_HISTORY[d.sym].length < 96) {
+  seedBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
 } else {
   processBiasAndFlip();
 }
