@@ -4625,10 +4625,10 @@ const marketDomIcon =
     : "neutral";
 
 
-const rawSeries = compressRawBias15m(d.sym).slice(-96);
+const biasSeries = compressBias15m(d.sym).slice(-96);
 
-flipAttempt = detectPolarityFlipAttempt(rawSeries);
-flipAttemptCount = countPolarityFlipAttempts(rawSeries);
+flipAttempt = detectPolarityFlipAttempt(biasSeries);
+flipAttemptCount = countPolarityFlipAttempts(biasSeries);
 
     
     
@@ -5129,7 +5129,7 @@ async function processBiasAndFlip() {
 }
 
 /* Seed if needed, then process */
-if (!RAW_BIAS_HISTORY[d.sym] || RAW_BIAS_HISTORY[d.sym].length < 96) {
+if (!BIAS_HISTORY[d.sym] || BIAS_HISTORY[d.sym].length < 96) {
   seedBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
 } else {
   processBiasAndFlip();
