@@ -984,13 +984,13 @@ function drawSingleBiasPoint(canvas, point) {
   }
 
   
-function computeHistoricalBias(k, idx, all, htfTrend = "neutral") {
+function computeHistoricalBias(k, idx, all, htfTrend) {
   const close = +k[4];
   const open  = +k[1];
   const high  = +k[2];
   const low   = +k[3];
 
-  const body  = Math.abs(close - open);
+  const body = Math.abs(close - open);
   const range = high - low;
 
   const isBull = close > open;
@@ -1002,14 +1002,15 @@ function computeHistoricalBias(k, idx, all, htfTrend = "neutral") {
   const microUp   = close > prev;
   const microDown = close < prev;
 
-  /* ================= HTF-AWARE LOGIC ================= */
-
+  /* ================= BULLISH HTF ================= */
   if (htfTrend === "bullish") {
 
+    // strong bullish continuation
     if (microUp && isBull && momentum > 0.6) {
       return "Bullish Continuation";
     }
 
+    // bearish candle inside bullish trend = pullback / trap
     if (microDown && isBear) {
       return momentum > 0.6
         ? "Bull Trap Risk"
@@ -1019,12 +1020,15 @@ function computeHistoricalBias(k, idx, all, htfTrend = "neutral") {
     return "Neutral";
   }
 
+  /* ================= BEARISH HTF ================= */
   if (htfTrend === "bearish") {
 
+    // strong bearish continuation
     if (microDown && isBear && momentum > 0.6) {
       return "Bearish Continuation";
     }
 
+    // bullish candle inside bearish trend = pullback / trap
     if (microUp && isBull) {
       return momentum > 0.6
         ? "Bear Trap Risk"
@@ -1034,28 +1038,11 @@ function computeHistoricalBias(k, idx, all, htfTrend = "neutral") {
     return "Neutral";
   }
 
-  /* ================= NO HTF / FALLBACK ================= */
-
-  // original behavior (unchanged)
-  if (microUp && isBull && momentum > 0.6) {
-    return "Bullish Continuation";
-  }
-
-  if (microUp && isBear) {
-    return "Bull Trap Risk";
-  }
-
-  if (microDown && isBear && momentum > 0.6) {
-    return "Bearish Continuation";
-  }
-
-  if (microDown && isBull) {
-    return "Bear Trap Risk";
-  }
-
   return "Neutral";
-}
+  }
 
+  
+  
   function computeRawBias(k, idx, all) {
   const close = +k[4];
   const open  = +k[1];
