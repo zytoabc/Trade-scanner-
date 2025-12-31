@@ -3955,6 +3955,14 @@ const postVolBreakRSIConfirmSafe =
 
   const fundingRate = await getFundingRate(sym);
 
+  const volAI =
+  detect24hVolumeLocationAI(...) ?? {
+    meaning: "Neutral",
+    intent: "Neutral",
+    bias: "Neutral",
+    futureOutcome: "NEUTRAL (NO EDGE)"
+  };
+
   
   const aiVerdict = getAIFinalVerdict({
   sym,
@@ -4909,8 +4917,11 @@ ${(d.rsiMomentumShift && d.momentumCollapseDone) ? `
   </div>
 ` : ""}
 
-<div class="muted neutral" title="Context only. Describes the likely market phase, not a trade signal.">
-  ⚠ Market Phase: <b>${d.volAI.futureOutcome}</b>
+
+<div class="muted neutral"
+     title="Context only. Describes the likely market phase, not a trade signal.">
+  ⚠ Market Phase:
+  <b>${d.volAI?.futureOutcome ?? "NEUTRAL (NO EDGE)"}</b>
 </div>
 
 
