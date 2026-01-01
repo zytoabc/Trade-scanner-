@@ -1071,28 +1071,26 @@ function computeHistoricalBias(k, idx, all, htfTrend) {
   }
 
 
-  async function seedBiasFrom15mHistory(sym) {
+  async function seedBiasFrom15mHistory(sym, htfTrend = "neutral") {
   const klines = await fetch15mHistory(sym);
   if (!klines || klines.length === 0) return;
 
   BIAS_HISTORY[sym] = [];
-  RAW_BIAS_HISTORY[sym] = [];
 
   klines.forEach((k, i) => {
+    const bias = computeHistoricalBias(
+      k,
+      i,
+      klines,
+      htfTrend
+    );
 
-    // 🔵 chart bias (unchanged)
-    const bias = computeHistoricalBias(k, i, klines);
+    const y = BIAS_Y_MAP[bias] ?? 0;
+
     BIAS_HISTORY[sym].push({
-      ts: k[0],
+      ts: k[0], // 15m open time
       bias,
-      y: BIAS_Y_MAP[bias] ?? 0
-    });
-
-    // 🔴 raw bias (new)
-    const raw = computeRawBias(k, i, klines);
-    RAW_BIAS_HISTORY[sym].push({
-      ts: k[0],
-      y: raw
+      y
     });
   });
 }
