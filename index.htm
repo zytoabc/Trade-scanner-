@@ -1103,7 +1103,7 @@ function computeHistoricalBias(k, idx, all, htfTrend) {
 
   klines.forEach((k, i) => {
     const rawBias = computeRawBias(k, i, klines);
-    const y = RAW_BIAS_Y_MAP[rawBias] ?? 0;
+    const y = BIAS_Y_MAP[rawBias] ?? 0;
 
     RAW_BIAS_HISTORY[sym].push({
       ts: k[0],        // 15m open time
