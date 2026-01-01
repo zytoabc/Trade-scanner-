@@ -755,34 +755,6 @@ function compressBias15m(symbol) {
       };
     });
 }
-
-  const RAW_BIAS_HISTORY = {};
-  
-
-  function compressRawBias15m(sym) {
-  const data = RAW_BIAS_HISTORY[sym];
-  if (!data || data.length === 0) return [];
-
-  const buckets = {};
-
-  for (const p of data) {
-    const key = Math.floor(p.ts / (15 * 60 * 1000));
-    if (!buckets[key]) buckets[key] = [];
-    buckets[key].push(p);
-  }
-
-  return Object.entries(buckets)
-    .sort((a, b) => a[0] - b[0])
-    .map(([k, arr]) => {
-      let sum = 0;
-      arr.forEach(p => sum += p.y);
-
-      return {
-        time: Number(k) * 15 * 60 * 1000,
-        y: Math.sign(sum) // -1, 0, +1
-      };
-    });
-}
   
 
   /* ================= BIAS → Y AXIS MAP ================= */
@@ -1042,6 +1014,59 @@ function computeHistoricalBias(k, idx, all, htfTrend) {
 }
   
 
+
+  async function seedBiasFrom15mHistory(sym, htfTrend = "neutral") {
+  const klines = await fetch15mHistory(sym);
+  if (!klines || klines.length === 0) return;
+
+  BIAS_HISTORY[sym] = [];
+
+  klines.forEach((k, i) => {
+    const bias = computeHistoricalBias(
+      k,
+      i,
+      klines,
+      htfTrend
+    );
+
+    const y = BIAS_Y_MAP[bias] ?? 0;
+
+    BIAS_HISTORY[sym].push({
+      ts: k[0], // 15m open time
+      bias,
+      y
+    });
+  });
+}
+
+
+    const RAW_BIAS_HISTORY = {};
+  
+
+  function compressRawBias15m(sym) {
+  const data = RAW_BIAS_HISTORY[sym];
+  if (!data || data.length === 0) return [];
+
+  const buckets = {};
+
+  for (const p of data) {
+    const key = Math.floor(p.ts / (15 * 60 * 1000));
+    if (!buckets[key]) buckets[key] = [];
+    buckets[key].push(p);
+  }
+
+  return Object.entries(buckets)
+    .sort((a, b) => a[0] - b[0])
+    .map(([k, arr]) => {
+      let sum = 0;
+      arr.forEach(p => sum += p.y);
+
+      return {
+        time: Number(k) * 15 * 60 * 1000,
+        y: Math.sign(sum) // -1, 0, +1
+      };
+    });
+  }
   
   
   function computeRawBias(k, idx, all) {
@@ -1070,30 +1095,23 @@ function computeHistoricalBias(k, idx, all, htfTrend) {
   return "Neutral";
   }
 
-
-  async function seedBiasFrom15mHistory(sym, htfTrend = "neutral") {
+        async function seedRawBiasFrom15mHistory(sym) {
   const klines = await fetch15mHistory(sym);
   if (!klines || klines.length === 0) return;
 
-  BIAS_HISTORY[sym] = [];
+  RAW_BIAS_HISTORY[sym] = [];
 
   klines.forEach((k, i) => {
-    const bias = computeHistoricalBias(
-      k,
-      i,
-      klines,
-      htfTrend
-    );
+    const rawBias = computeRawBias(k, i, klines);
+    const y = RAW_BIAS_Y_MAP[rawBias] ?? 0;
 
-    const y = BIAS_Y_MAP[bias] ?? 0;
-
-    BIAS_HISTORY[sym].push({
-      ts: k[0], // 15m open time
-      bias,
+    RAW_BIAS_HISTORY[sym].push({
+      ts: k[0],        // 15m open time
+      rawBias,
       y
     });
   });
-}
+        }
 
   const DEBUG_BIAS_TIME = true;
 
@@ -4623,10 +4641,10 @@ const marketDomIcon =
     : "neutral";
 
 
-const biasSeries = compressBias15m(d.sym).slice(-96);
+const rawSeries = compressRawBias15m(d.sym).slice(-96);
 
-flipAttempt = detectPolarityFlipAttempt(biasSeries);
-flipAttemptCount = countPolarityFlipAttempts(biasSeries);
+flipAttempt = detectPolarityFlipAttempt(rawSeries);
+flipAttemptCount = countPolarityFlipAttempts(rawSeries);
 
     
     
@@ -5106,8 +5124,9 @@ const canvas = card.querySelector(".bias-chart");
 if (!canvas) return;
 
 async function processBiasAndFlip() {
+  const rawSeries = compressRawBias15m(d.sym).slice(-96);
   const series = compressBias15m(d.sym).slice(-96);
-  const flipAttempt = detectPolarityFlipAttempt(series);
+  const flipAttempt = detectPolarityFlipAttempt(rawSeries);
 
   if (flipAttempt) {
     registerFlipAttempt(d.sym, flipAttempt, d.mainTrend);
@@ -5128,7 +5147,7 @@ async function processBiasAndFlip() {
 
 /* Seed if needed, then process */
 if (!BIAS_HISTORY[d.sym] || BIAS_HISTORY[d.sym].length < 96) {
-  seedBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
+  seedRawBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
 } else {
   processBiasAndFlip();
 }
