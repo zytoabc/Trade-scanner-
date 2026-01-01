@@ -5146,11 +5146,26 @@ async function processBiasAndFlip() {
 }
 
 /* Seed if needed, then process */
-if (!RAW_BIAS_HISTORY[d.sym] || RAW_BIAS_HISTORY[d.sym].length < 96) {
-  seedRawBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
-} else {
-  processBiasAndFlip();
-}
+/* ================= ENSURE BOTH HISTORIES ================= */
+(async () => {
+  const needRaw =
+    !RAW_BIAS_HISTORY[d.sym] ||
+    RAW_BIAS_HISTORY[d.sym].length < 96;
+
+  const needInterp =
+    !BIAS_HISTORY[d.sym] ||
+    BIAS_HISTORY[d.sym].length < 96;
+
+  if (needRaw) {
+    await seedRawBiasFrom15mHistory(d.sym);
+  }
+
+  if (needInterp) {
+    await seedBiasFrom15mHistory(d.sym, d.mainTrend);
+  }
+
+  await processBiasAndFlip();
+})();
 
 
 
