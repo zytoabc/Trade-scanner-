@@ -5124,8 +5124,8 @@ const canvas = card.querySelector(".bias-chart");
 if (!canvas) return;
 
 async function processBiasAndFlip() {
-  const rawSeries = compressRawBias15m(d.sym).slice(-96);
   const series = compressBias15m(d.sym).slice(-96);
+  const rawSeries = compressRawBias15m(d.sym).slice(-96);
   const flipAttempt = detectPolarityFlipAttempt(rawSeries);
 
   if (flipAttempt) {
@@ -5146,7 +5146,7 @@ async function processBiasAndFlip() {
 }
 
 /* Seed if needed, then process */
-if (!BIAS_HISTORY[d.sym] || BIAS_HISTORY[d.sym].length < 96) {
+if (!RAW_BIAS_HISTORY[d.sym] || RAW_BIAS_HISTORY[d.sym].length < 96) {
   seedRawBiasFrom15mHistory(d.sym).then(processBiasAndFlip);
 } else {
   processBiasAndFlip();
