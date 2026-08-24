@@ -4879,12 +4879,42 @@ async function runScan(once=false, suppliedSession=null){
     const blowoffThreshold = parseInt(el.threshold.value,10) || 4;
     const flagged = window.lastScanResults.filter(r => r.score >= blowoffThreshold);
     const flaggedCond = flagged.filter(r => r.accumCombined && r.accumCombined.confidence >= accumThreshold);
+    // Notifications are optional. Never let browser notification support stop a scan.
+    // Some WebView/Android environments expose Notification but do not allow
+    // `new Notification(...)`; use a service-worker registration when available.
+    async function sendScannerNotification(title, body){
+      try {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'default') {
+          try { await Notification.requestPermission(); } catch (_) { return; }
+        }
+        if (Notification.permission !== 'granted') return;
+
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg && typeof reg.showNotification === 'function') {
+            await reg.showNotification(title, {
+              body,
+              tag: 'magma-scanner-alert',
+              renotify: true
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Scanner notification skipped:', err);
+      }
+    }
+
     if(condEnabled && flaggedCond.length){
-      if(Notification && Notification.permission === 'granted') new Notification('Blowoff+Accum Alert', { body: flaggedCond.map(x => `${x.symbol} acc:${x.accumCombined.confidence}%`).slice(0,6).join(', ') });
-      else if(Notification && Notification.permission !== 'denied') Notification.requestPermission();
+      sendScannerNotification(
+        'Blowoff+Accum Alert',
+        flaggedCond.map(x => `${x.symbol} acc:${x.accumCombined.confidence}%`).slice(0,6).join(', ')
+      );
     } else if(!condEnabled && flagged.length){
-      if(Notification && Notification.permission === 'granted') new Notification('Blowoff Detected', { body: flagged.map(f=>f.symbol).slice(0,6).join(', ') });
-      else if(Notification && Notification.permission !== 'denied') Notification.requestPermission();
+      sendScannerNotification(
+        'Blowoff Detected',
+        flagged.map(f=>f.symbol).slice(0,6).join(', ')
+      );
     }
 
     if(!once){
