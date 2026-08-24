@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2212%22 fill=%22%230b1220%22/><path d=%22M10 45 L24 28 L34 37 L54 14%22 fill=%22none%22 stroke=%22%232dd4bf%22 stroke-width=%227%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>"/>
 <title>Blowoff Top Detector — Phase, Cycle Match, Multi-TF Accumulation, & Alerts</title>
 <style>
   :root{
@@ -3781,17 +3782,6 @@ if (el.correctionFilter) {
   });
 }
 
-const showDistBtn = document.getElementById('showDistBtn');
-if (showDistBtn) {
-  showDistBtn.addEventListener('click', () => {
-    showOnlyDist = !showOnlyDist;
-    // The updated UI uses a checkbox for this legacy toggle.
-    if (showDistBtn.type === 'checkbox') showDistBtn.checked = showOnlyDist;
-    const label = showDistBtn.closest('.controlToggle');
-    if (label) label.classList.toggle('active', showOnlyDist);
-    if (Array.isArray(window.lastScanResults)) applyFilterAndSortThenRender(window.lastScanResults);
-  });
-}
 
 // Keep the old sorting default: Score, Desc.
 if (el.sortBy) el.sortBy.value = 'score';
