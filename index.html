@@ -4281,6 +4281,33 @@ function renderProfessionalAnalysis(r, rec, srec, longTargets){
   `;
 }
 
+/* ---------- RESULT ACTION HELPERS ---------- */
+function favoriteButtonHtml(symbol){
+  const s = String(symbol || '').trim().toUpperCase();
+  if(!s) return '';
+  const active = favoriteSymbols.has(s);
+  return `<button type="button" class="coinAction favAction" data-symbol="${s}" title="${active ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${active ? 'Remove from favorites' : 'Add to favorites'}">${active ? '★' : '☆'}</button>`;
+}
+
+function closeButtonHtml(symbol){
+  const s = String(symbol || '').trim().toUpperCase();
+  if(!s) return '';
+  return `<button type="button" class="coinAction closeAction" data-symbol="${s}" title="Close this coin from the current view" aria-label="Close ${s}">×</button>`;
+}
+
+function closeSymbol(symbol){
+  const s = String(symbol || '').trim().toUpperCase();
+  if(!s) return;
+  closedSymbols.add(s);
+  renderActiveView();
+}
+
+function restoreClosed(){
+  if(!closedSymbols.size) return;
+  closedSymbols.clear();
+  renderActiveView();
+}
+
 /* ---------- RENDER TABLE & CARDS ---------- */
 function renderTable(results){
   const threshold=parseInt(el.threshold.value,10)||4;
