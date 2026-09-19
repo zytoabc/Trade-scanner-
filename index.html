@@ -26,7 +26,7 @@ tr:hover{background:#19212c}
 .mini{font-size:11px;color:var(--muted)}.stage{font-weight:700}
 .progress{height:6px;background:#232c39;border-radius:10px;overflow:hidden}.progress i{display:block;height:100%;background:var(--blue)}
 details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
-.error{color:var(--red)}.muted{color:var(--muted)}
+.error{color:var(--red)}.muted{color:var(--muted)}.alert{color:var(--yellow);font-weight:700}.early{color:#ffb86b;font-weight:700}
 @media(max-width:700px){header{position:static}.wrap{padding:9px}h1{font-size:17px}}
 </style>
 </head>
@@ -63,7 +63,8 @@ details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fi
         <div><b>Gainer direction</b><br><span class="muted">Peak/blowoff → large selloff → trough → partial recovery.</span></div>
         <div><b>Loser direction</b><br><span class="muted">Trough/capitulation → large rebound → local peak → partial retracement.</span></div>
         <div><b>Confirmation inputs</b><br><span class="muted">Move size, recovery fraction, volume expansion, EMA14/21/50/70/200, RSI14, and current location.</span></div>
-        <div><b>Safety</b><br><span class="muted">One ticker request + 60 kline requests per full scan, no overlap, limited concurrency, pacing, retry/backoff.</span></div>
+        <div><b>Pre-breakdown alert</b><br><span class="muted">Looks for a blow-off/rejection candle while price is attacking the EMA14/21 area, before the move becomes a confirmed EMA breakdown. Uses candle body/range, ATR, volume, prior rally, EMA structure, and RSI.</span></div>
+        <div><b>Safety</b><br><span class="muted">One ticker request + 60 kline requests per full scan, no extra API calls for pre-breakdown detection, no overlap, limited concurrency, pacing, retry/backoff.</span></div>
       </div>
     </details>
   </div>
@@ -72,7 +73,7 @@ details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fi
     <div class="tabs">
       <button class="active" data-tab="gainers">Top 30 Gainers — selloff afterwards</button>
       <button data-tab="losers">Top 30 Losers — opposite rebound</button>
-      <button data-tab="all">All detected</button>
+      <button data-tab="all">All detected</button><button data-tab="prebreak">⚠ Pre-Breakdown Alerts</button>
     </div>
     <div id="summary" class="sub" style="margin:12px 0">Run a scan to populate results.</div>
     <div class="tablewrap">
@@ -88,6 +89,7 @@ details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fi
   </div>
 
   <div class="panel mini">
+    <b>Pre-breakdown note:</b> The new alert is an early-warning pattern detector. It can trigger while the latest 15m Binance candle is still forming, so the signal can disappear or change before that candle closes. It does not predict every breakdown and is not a trade signal by itself.<br><br>
     <b>Important:</b> This is a pattern scanner, not a trade executor or guarantee of future performance. “Score” is a structural similarity score, not a hit-rate or probability.
     The browser should be served from localhost (for example with <code>python -m http.server</code>) rather than opened as a restrictive <code>file://</code> page.
   </div>
@@ -96,7 +98,7 @@ details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fi
 <script>
 "use strict";
 const API="https://fapi.binance.com";
-const state={running:false,stop:false,tab:"gainers",timer:null,nextAt:0,requests:0,backs:0,results:{gainers:[],losers:[],all:[]}};
+const state={running:false,stop:false,tab:"gainers",timer:null,nextAt:0,requests:0,backs:0,results:{gainers:[],losers:[],all:[],prebreak:[]}};
 const $=id=>document.getElementById(id);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function num(x){const n=Number(x);return Number.isFinite(n)?n:0}
@@ -157,6 +159,132 @@ function maxVolumeRatio(c,from,to){
   const avg=base.reduce((a,b)=>a+b,0)/base.length;
   return Math.max(...vols)/Math.max(avg,1e-12);
 }
+
+function atr(c,p=14){
+  if(c.length<p+1)return NaN;
+  let tr=0;
+  for(let i=c.length-p;i<c.length;i++){
+    const prev=c[i-1]?.c ?? c[i].o;
+    tr += Math.max(c[i].h-c[i].l,Math.abs(c[i].h-prev),Math.abs(c[i].l-prev));
+  }
+  return tr/p;
+}
+
+/*
+  Early warning detector for the PIEVERSE-style event:
+  prior rally/blow-off -> large bearish displacement -> attack on EMA14/21
+  while price is still above EMA50/EMA200.
+
+  This intentionally does NOT wait for a full confirmed breakdown.
+  It can therefore fire on the currently-forming Binance 15m candle.
+*/
+function detectPreBreakdown(c,ticker){
+  if(c.length<120)return null;
+
+  const close=c.map(x=>x.c), high=c.map(x=>x.h), low=c.map(x=>x.l), vols=c.map(x=>x.v);
+  const n=c.length, i=n-1, cur=c[i], prev=c[i-1];
+  const e14=ema(close,14),e21=ema(close,21),e50=ema(close,50),e70=ema(close,70),e200=ema(close,200);
+  const rv=rsi(close), a=atr(c,14);
+  if(!Number.isFinite(a)||a<=0)return null;
+
+  // Candle/displacement measurements.
+  const range=Math.max(cur.h-cur.l,1e-12);
+  const body=Math.abs(cur.c-cur.o);
+  const bodyPct=body/range*100;
+  const bearish=cur.c<cur.o;
+  const bodyAtr=body/a;
+
+  // Volume against the previous 20 completed bars (exclude current candle).
+  const base=vols.slice(Math.max(0,i-20),i);
+  const avgVol=base.length?base.reduce((x,y)=>x+y,0)/base.length:0;
+  const volRatio=cur.v/Math.max(avgVol,1e-12);
+
+  // Recent rally / blow-off context: compare the recent high to the
+  // low 8-30 bars before that high.
+  let peak=-Infinity,peakI=-1;
+  const from=Math.max(20,i-30);
+  for(let j=from;j<i;j++){
+    if(high[j]>peak){peak=high[j];peakI=j}
+  }
+  if(peakI<0 || peakI>i-3)return null;
+
+  const preStart=Math.max(0,peakI-20);
+  let baseLow=Infinity;
+  for(let j=preStart;j<peakI;j++)baseLow=Math.min(baseLow,low[j]);
+  const rallyPct=baseLow<Infinity?(peak-baseLow)/baseLow*100:0;
+  const peakAge=i-peakI;
+
+  // Reject the setup if price has already collapsed well below the EMA50.
+  // The objective is to flag the transition before/around the first major
+  // EMA failure, not after the breakdown is already mature.
+  const stillAbove50=cur.c>=e50*0.985;
+  const nearFastCluster=cur.l<=Math.max(e14,e21)*1.005 && cur.c<=Math.max(e14,e21)*1.02;
+  const fastCrossing=cur.l<Math.min(e14,e21) || cur.c<Math.max(e14,e21);
+  const bullishStackBefore = e14>=e21 && e21>=e50;
+
+  // Rejection / displacement quality.
+  const upperWick=Math.max(0,cur.h-Math.max(cur.o,cur.c));
+  const upperWickPct=upperWick/range*100;
+  const closeInLowerHalf=(cur.c-cur.l)/range<=0.48;
+  const rsiCooling = rv<=Math.max(55, rsi(close.slice(0,-1))||55);
+
+  // Score is deliberately a setup-strength score, not a probability.
+  let score=0, reason=[];
+  if(bearish)score+=15; else return null;
+  if(bodyPct>=55)score+=15;
+  if(bodyAtr>=1.15)score+=20;
+  if(volRatio>=1.5)score+=15;
+  if(rallyPct>=8)score+=10;
+  if(peakAge<=8)score+=10;
+  if(bullishStackBefore)score+=5;
+  if(nearFastCluster||fastCrossing)score+=10;
+  if(stillAbove50)score+=5;
+  if(upperWickPct>=12)score+=5;
+  if(closeInLowerHalf)score+=5;
+  if(rsiCooling)score+=5;
+  score=Math.min(100,score);
+
+  if(rallyPct>=8)reason.push("prior rally/blow-off");
+  if(bodyAtr>=1.15)reason.push("large bearish displacement");
+  if(volRatio>=1.5)reason.push("volume expansion");
+  if(nearFastCluster||fastCrossing)reason.push("EMA14/21 attack");
+  if(stillAbove50)reason.push("EMA50 not fully lost");
+  if(upperWickPct>=12)reason.push("rejection wick");
+  if(rsiCooling)reason.push("RSI cooling");
+
+  // Core qualification: this should look like the early transition,
+  // not just any red candle.
+  const qualifies =
+    bearish &&
+    bodyPct>=45 &&
+    bodyAtr>=0.9 &&
+    volRatio>=1.25 &&
+    rallyPct>=6 &&
+    peakAge<=12 &&
+    (nearFastCluster||fastCrossing) &&
+    stillAbove50 &&
+    score>=65;
+
+  if(!qualifies)return null;
+
+  return {
+    symbol:ticker.symbol,
+    change:num(ticker.priceChangePercent),
+    price:cur.c,
+    score,
+    phase:"PRE-BREAKDOWN",
+    direction:"bearish",
+    bodyPct,
+    bodyAtr,
+    volRatio,
+    rallyPct,
+    rv,
+    e14,e21,e50,e70,e200,
+    emaRelation:cur.c>=e50?"above EMA50":"near/below EMA50",
+    reason:reason.join(" • ")
+  };
+}
+
 function detect(c,ticker,direction){
   const close=c.map(x=>x.c), vols=c.map(x=>x.v);
   if(c.length<120)return null;
@@ -238,12 +366,34 @@ async function fullScan(){
     const perp=all.filter(x=>x.symbol.endsWith("USDT") && x.symbol.includes("USDT") && !x.symbol.includes("_") && num(x.lastPrice)>0);
     const gain=perp.filter(x=>num(x.priceChangePercent)>0).sort((a,b)=>num(b.priceChangePercent)-num(a.priceChangePercent)).slice(0,30);
     const lose=perp.filter(x=>num(x.priceChangePercent)<0).sort((a,b)=>num(a.priceChangePercent)-num(b.priceChangePercent)).slice(0,30);
-    const g=[],l=[]; setStatus("SCANNING 60 SYMBOLS");
-    await Promise.all([worker(gain,"gainer",g),worker(lose,"loser",l)]);
+    const g=[],l=[],pbreak=[]; setStatus("SCANNING 60 SYMBOLS");
+    await Promise.all([
+      worker(gain,"gainer",g),
+      worker(lose,"loser",l),
+      (async()=>{
+        const universe=[...gain,...lose];
+        let cursor=0;
+        const concurrency=Math.max(1,Math.min(4,Math.round(num($("concurrency").value)||2)));
+        async function run(){
+          while(cursor<universe.length && !state.stop){
+            const t=universe[cursor++];
+            try{
+              const lim=Math.max(120,Math.min(499,Math.round(num($("klimit").value)||200)));
+              const raw=await fetchJSON(`/fapi/v1/klines?symbol=${encodeURIComponent(t.symbol)}&interval=15m&limit=${lim}`);
+              const c=raw.map(x=>({t:+x[0],o:num(x[1]),h:num(x[2]),l:num(x[3]),c:num(x[4]),v:num(x[5])}));
+              const r=detectPreBreakdown(c,t);
+              if(r)pbreak.push(r);
+            }catch(e){}
+            await sleep(Math.max(80,num($("gap").value)||150));
+          }
+        }
+        await Promise.all(Array.from({length:Math.min(concurrency,universe.length)},run));
+      })()
+    ]);
     g.sort((a,b)=>b.score-a.score);l.sort((a,b)=>b.score-a.score);
-    state.results={gainers:g,losers:l,all:[...g,...l].sort((a,b)=>b.score-a.score)};
+    pbreak.sort((a,b)=>b.score-a.score); state.results={gainers:g,losers:l,all:[...g,...l].sort((a,b)=>b.score-a.score),prebreak:pbreak};
     const now=new Date();$("last").textContent=now.toLocaleTimeString();
-    $("summary").textContent=`Detected ${g.length} gainer-side structures and ${l.length} loser-side structures from the current Top 30 lists.`;
+    $("summary").textContent=`Detected ${g.length} gainer-side structures, ${l.length} loser-side structures, and ${pbreak.length} pre-breakdown alerts from the current Top 30 lists.`;
     render();
     setStatus("READY");
   }catch(e){setStatus("ERROR");$("summary").innerHTML=`<span class="error">${e.message}</span>`}
@@ -262,7 +412,27 @@ function schedule(){
 function render(){
   const list=state.results[state.tab]||[];
   const rows=$("rows");
-  rows.innerHTML=list.map((r,i)=>{
+
+  if(state.tab==="prebreak"){
+    $("summary").textContent=list.length
+      ? `Found ${list.length} early bearish transition(s). These are warnings before/around EMA14/21 failure, not confirmed breakdowns.`
+      : "No early bearish transition found with the current thresholds.";
+    rows.innerHTML=list.map((r,i)=>`<tr>
+      <td>${i+1}</td><td><b>${r.symbol}</b></td><td class="r">${pct(r.change)}</td>
+      <td class="stage early">${r.phase}</td><td class="score">${r.score}/100</td>
+      <td>Body ${r.bodyPct.toFixed(0)}%</td><td>${r.bodyAtr.toFixed(2)} ATR</td>
+      <td>${r.rallyPct.toFixed(1)}%</td><td>${r.rv.toFixed(1)}</td>
+      <td>${r.emaRelation}</td><td>${r.volRatio.toFixed(1)}×</td><td>${r.reason}</td>
+    </tr>`).join("") || `<tr><td colspan="12" class="muted">No pre-breakdown alert found.</td></tr>`;
+    return;
+  }
+
+  const list2=list;
+  $("summary").textContent = state.results.gainers && state.results.losers
+    ? `Detected ${state.results.gainers.length} gainer-side structures, ${state.results.losers.length} loser-side structures, and ${(state.results.prebreak||[]).length} pre-breakdown alerts from the current Top 30 lists.`
+    : "Run a scan to populate results.";
+
+  rows.innerHTML=list2.map((r,i)=>{
     const directionClass=r.direction==="gainer"?"g":"r";
     const rec=r.direction==="gainer"?r.recovery:(100-r.recovery);
     return `<tr>
@@ -274,14 +444,23 @@ function render(){
     </tr>`
   }).join("") || `<tr><td colspan="12" class="muted">No qualifying structure found with the current thresholds.</td></tr>`;
 }
+function setHeaders(){
+  const h=document.querySelector("thead tr");
+  if(state.tab==="prebreak"){
+    h.innerHTML='<th>#</th><th>Symbol</th><th>24h</th><th>Structure</th><th>Score</th><th>Candle body</th><th>Body / ATR</th><th>Prior rally</th><th>RSI14</th><th>EMA50 relation</th><th>Vol spike</th><th>Reason</th>';
+  }else{
+    h.innerHTML='<th>#</th><th>Symbol</th><th>24h</th><th>Structure</th><th>Score</th><th>Extreme → current</th><th>Extreme move</th><th>Recovery</th><th>RSI14</th><th>EMA200 relation</th><th>Vol spike</th><th>Reason</th>';
+  }
+}
 document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>{
   document.querySelectorAll("[data-tab]").forEach(x=>x.classList.remove("active"));b.classList.add("active");
-  state.tab=b.dataset.tab;render();
+  state.tab=b.dataset.tab;setHeaders();render();
 }));
 $("scan").onclick=()=>{clearTimeout(state.timer);fullScan()};
 $("stop").onclick=()=>{state.stop=true;clearTimeout(state.timer);setStatus("STOPPED");$("next").textContent="—"};
 setInterval(()=>{if(state.nextAt>0&&!state.running){const s=Math.max(0,Math.ceil((state.nextAt-Date.now())/1000));$("next").textContent=s+"s"}},1000);
 estimateWeight();
+setHeaders();
 fullScan();
 </script>
 </body>
