@@ -63,6 +63,7 @@ details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fi
         <div><b>Gainer direction</b><br><span class="muted">Peak/blowoff → large selloff → trough → partial recovery.</span></div>
         <div><b>Loser direction</b><br><span class="muted">Trough/capitulation → large rebound → local peak → partial retracement.</span></div>
         <div><b>Confirmation inputs</b><br><span class="muted">Move size, recovery fraction, volume expansion, EMA14/21/50/70/200, RSI14, and current location.</span></div>
+        <div><b>Color</b><br><span class="g">Green = positive</span> • <span class="r">Red = negative</span></div>
         <div><b>Pre-breakdown alert</b><br><span class="muted">Searches the recent 12 completed 15m candles for a blow-off/rejection displacement attacking EMA14/21. It can also flag the first EMA50 breakdown candle so a PIEVERSE-style one-candle collapse is not missed. Uses candle body/range, ATR, volume, prior rally, EMA structure, and RSI.</span></div>
         <div><b>Safety</b><br><span class="muted">One ticker request + 60 kline requests per full scan, no extra API calls for pre-breakdown detection, no overlap, limited concurrency, pacing, retry/backoff.</span></div>
       </div>
@@ -455,7 +456,7 @@ function render(){
       ? `Found ${list.length} early bearish transition(s). These are recent transition events: PRE-BREAKDOWN or the first BREAKDOWN TRIGGER. The detector does not require the latest candle to still be red.`
       : "No early bearish transition found with the current thresholds.";
     rows.innerHTML=list.map((r,i)=>`<tr>
-      <td>${i+1}</td><td><b>${r.symbol}</b></td><td class="r">${pct(r.change)}</td>
+      <td>${i+1}</td><td><b>${r.symbol}</b></td><td class="${num(r.change)>=0?'g':'r'}">${pct(r.change)}</td>
       <td class="stage early">${r.phase}</td><td class="score">${r.score}/100</td>
       <td>Body ${r.bodyPct.toFixed(0)}%</td><td>${r.bodyAtr.toFixed(2)} ATR</td>
       <td>${r.rallyPct.toFixed(1)}%</td><td>${r.rv.toFixed(1)}</td>
@@ -470,7 +471,7 @@ function render(){
     : "Run a scan to populate results.";
 
   rows.innerHTML=list2.map((r,i)=>{
-    const directionClass=r.direction==="gainer"?"g":"r";
+    const directionClass=num(r.change)>=0?"g":"r";
     const rec=r.direction==="gainer"?r.recovery:(100-r.recovery);
     return `<tr>
       <td>${i+1}</td><td><b>${r.symbol}</b></td><td class="${directionClass}">${pct(r.change)}</td>
