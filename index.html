@@ -63,7 +63,7 @@ details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fi
         <div><b>Gainer direction</b><br><span class="muted">Peak/blowoff → large selloff → trough → partial recovery.</span></div>
         <div><b>Loser direction</b><br><span class="muted">Trough/capitulation → large rebound → local peak → partial retracement.</span></div>
         <div><b>Confirmation inputs</b><br><span class="muted">Move size, recovery fraction, volume expansion, EMA14/21/50/70/200, RSI14, and current location.</span></div>
-        <div><b>Pre-breakdown alert</b><br><span class="muted">Looks for a blow-off/rejection candle while price is attacking the EMA14/21 area, before the move becomes a confirmed EMA breakdown. Uses candle body/range, ATR, volume, prior rally, EMA structure, and RSI.</span></div>
+        <div><b>Pre-breakdown alert</b><br><span class="muted">Searches the recent 12 completed 15m candles for a blow-off/rejection displacement attacking EMA14/21. It can also flag the first EMA50 breakdown candle so a PIEVERSE-style one-candle collapse is not missed. Uses candle body/range, ATR, volume, prior rally, EMA structure, and RSI.</span></div>
         <div><b>Safety</b><br><span class="muted">One ticker request + 60 kline requests per full scan, no extra API calls for pre-breakdown detection, no overlap, limited concurrency, pacing, retry/backoff.</span></div>
       </div>
     </details>
@@ -89,7 +89,7 @@ details{margin-top:8px}.legend{display:grid;grid-template-columns:repeat(auto-fi
   </div>
 
   <div class="panel mini">
-    <b>Pre-breakdown note:</b> The new alert is an early-warning pattern detector. It can trigger while the latest 15m Binance candle is still forming, so the signal can disappear or change before that candle closes. It does not predict every breakdown and is not a trade signal by itself.<br><br>
+    <b>Pre-breakdown note:</b> The alert searches recent completed 15m candles, so it can still find a PIEVERSE-style displacement after the red candle has closed. It deliberately avoids relying only on the still-forming candle. It does not predict every breakdown and is not a trade signal by itself.<br><br>
     <b>Important:</b> This is a pattern scanner, not a trade executor or guarantee of future performance. “Score” is a structural similarity score, not a hit-rate or probability.
     The browser should be served from localhost (for example with <code>python -m http.server</code>) rather than opened as a restrictive <code>file://</code> page.
   </div>
@@ -182,107 +182,144 @@ function detectPreBreakdown(c,ticker){
   if(c.length<120)return null;
 
   const close=c.map(x=>x.c), high=c.map(x=>x.h), low=c.map(x=>x.l), vols=c.map(x=>x.v);
-  const n=c.length, i=n-1, cur=c[i], prev=c[i-1];
-  const e14=ema(close,14),e21=ema(close,21),e50=ema(close,50),e70=ema(close,70),e200=ema(close,200);
-  const rv=rsi(close), a=atr(c,14);
-  if(!Number.isFinite(a)||a<=0)return null;
+  const n=c.length;
 
-  // Candle/displacement measurements.
-  const range=Math.max(cur.h-cur.l,1e-12);
-  const body=Math.abs(cur.c-cur.o);
-  const bodyPct=body/range*100;
-  const bearish=cur.c<cur.o;
-  const bodyAtr=body/a;
+  /*
+    IMPORTANT:
+    The old version only inspected the LAST candle. That means PIEVERSE
+    could not be found once the big red displacement candle had closed and
+    the next candle turned green.
 
-  // Volume against the previous 20 completed bars (exclude current candle).
-  const base=vols.slice(Math.max(0,i-20),i);
-  const avgVol=base.length?base.reduce((x,y)=>x+y,0)/base.length:0;
-  const volRatio=cur.v/Math.max(avgVol,1e-12);
+    This version searches the most recent 12 candles, using completed candles
+    first, and returns the strongest recent event. This is intentional:
+    the scanner is looking for the STRUCTURE EVENT, not merely the current
+    candle color.
+  */
+  const candidates=[];
+  const first=Math.max(20,n-14);
+  const last=Math.max(first,n-2); // exclude the still-forming final candle
 
-  // Recent rally / blow-off context: compare the recent high to the
-  // low 8-30 bars before that high.
-  let peak=-Infinity,peakI=-1;
-  const from=Math.max(20,i-30);
-  for(let j=from;j<i;j++){
-    if(high[j]>peak){peak=high[j];peakI=j}
+  for(let i=last;i>=first;i--){
+    const cur=c[i], prev=c[i-1];
+    const e14=ema(close.slice(0,i+1),14);
+    const e21=ema(close.slice(0,i+1),21);
+    const e50=ema(close.slice(0,i+1),50);
+    const e70=ema(close.slice(0,i+1),70);
+    const e200=ema(close.slice(0,i+1),200);
+    const rv=rsi(close.slice(0,i+1),14);
+    const a=atr(c.slice(0,i+1),14);
+    if(!Number.isFinite(a)||a<=0||!Number.isFinite(e50))continue;
+
+    const range=Math.max(cur.h-cur.l,1e-12);
+    const body=Math.abs(cur.c-cur.o);
+    const bodyPct=body/range*100;
+    const bearish=cur.c<cur.o;
+    if(!bearish)continue;
+
+    const bodyAtr=body/a;
+
+    // Volume compared with the 20 bars immediately before the event candle.
+    const base=vols.slice(Math.max(0,i-20),i);
+    const avgVol=base.length?base.reduce((x,y)=>x+y,0)/base.length:0;
+    const volRatio=cur.v/Math.max(avgVol,1e-12);
+
+    // Find the recent local peak before the bearish displacement.
+    let peak=-Infinity,peakI=-1;
+    const pFrom=Math.max(20,i-30);
+    for(let j=pFrom;j<i;j++){
+      if(high[j]>peak){peak=high[j];peakI=j}
+    }
+    if(peakI<0 || peakI>=i)continue;
+
+    const preStart=Math.max(0,peakI-20);
+    let baseLow=Infinity;
+    for(let j=preStart;j<peakI;j++)baseLow=Math.min(baseLow,low[j]);
+    const rallyPct=baseLow<Infinity?(peak-baseLow)/baseLow*100:0;
+    const peakAge=i-peakI;
+
+    // EMA cluster at the EVENT candle, not at the current candle.
+    const clusterTop=Math.max(e14,e21);
+    const clusterBottom=Math.min(e14,e21);
+    const ema14_21Attack = cur.l <= clusterTop*1.01 && cur.c <= clusterTop*1.03;
+    const ema21Cross = cur.c < clusterBottom || cur.l < clusterBottom;
+
+    // Did the event become a first/early EMA50 break?
+    const ema50Break = cur.c < e50;
+    const notTooFarBelow50 = cur.c >= e50*0.94;
+
+    const upperWick=Math.max(0,cur.h-Math.max(cur.o,cur.c));
+    const upperWickPct=upperWick/range*100;
+    const closeInLowerHalf=(cur.c-cur.l)/range<=0.50;
+
+    let score=0,reason=[];
+    if(bodyPct>=45)score+=15;
+    if(bodyAtr>=0.9)score+=20;
+    if(volRatio>=1.25)score+=15;
+    if(rallyPct>=6)score+=15;
+    if(peakAge<=12)score+=10;
+    if(ema14_21Attack||ema21Cross)score+=15;
+    if(ema50Break)score+=5;
+    if(upperWickPct>=10)score+=3;
+    if(closeInLowerHalf)score+=2;
+    score=Math.min(100,score);
+
+    if(rallyPct>=6)reason.push("prior rally/blow-off");
+    if(bodyAtr>=0.9)reason.push("large bearish displacement");
+    if(volRatio>=1.25)reason.push("volume expansion");
+    if(ema14_21Attack||ema21Cross)reason.push("EMA14/21 penetration");
+    if(ema50Break)reason.push("EMA50 breakdown");
+    else reason.push("EMA50 not yet lost");
+    if(upperWickPct>=10)reason.push("rejection wick");
+
+    /*
+      Two useful states:
+      1. PRE-BREAKDOWN: candle attacks EMA14/21 but has not materially
+         broken EMA50.
+      2. BREAKDOWN TRIGGER: the first large displacement candle also breaks
+         EMA50. This is included because PIEVERSE's actual red candle can
+         pass through the whole EMA cluster in one move.
+    */
+    const qualifies =
+      bodyPct>=45 &&
+      bodyAtr>=0.9 &&
+      volRatio>=1.20 &&
+      rallyPct>=6 &&
+      peakAge<=12 &&
+      (ema14_21Attack||ema21Cross) &&
+      (notTooFarBelow50);
+
+    if(!qualifies)continue;
+
+    const phase=ema50Break ? "BREAKDOWN TRIGGER" : "PRE-BREAKDOWN";
+
+    candidates.push({
+      symbol:ticker.symbol,
+      change:num(ticker.priceChangePercent),
+      price:cur.c,
+      eventTime:cur.t,
+      barsAgo:n-1-i,
+      score,
+      phase,
+      direction:"bearish",
+      bodyPct,
+      bodyAtr,
+      volRatio,
+      rallyPct,
+      rv,
+      e14,e21,e50,e70,e200,
+      emaRelation:ema50Break?"EMA50 broken at event":"EMA50 still held at event",
+      reason:reason.join(" • ")
+    });
   }
-  if(peakI<0 || peakI>i-3)return null;
 
-  const preStart=Math.max(0,peakI-20);
-  let baseLow=Infinity;
-  for(let j=preStart;j<peakI;j++)baseLow=Math.min(baseLow,low[j]);
-  const rallyPct=baseLow<Infinity?(peak-baseLow)/baseLow*100:0;
-  const peakAge=i-peakI;
+  if(!candidates.length)return null;
 
-  // Reject the setup if price has already collapsed well below the EMA50.
-  // The objective is to flag the transition before/around the first major
-  // EMA failure, not after the breakdown is already mature.
-  const stillAbove50=cur.c>=e50*0.985;
-  const nearFastCluster=cur.l<=Math.max(e14,e21)*1.005 && cur.c<=Math.max(e14,e21)*1.02;
-  const fastCrossing=cur.l<Math.min(e14,e21) || cur.c<Math.max(e14,e21);
-  const bullishStackBefore = e14>=e21 && e21>=e50;
-
-  // Rejection / displacement quality.
-  const upperWick=Math.max(0,cur.h-Math.max(cur.o,cur.c));
-  const upperWickPct=upperWick/range*100;
-  const closeInLowerHalf=(cur.c-cur.l)/range<=0.48;
-  const rsiCooling = rv<=Math.max(55, rsi(close.slice(0,-1))||55);
-
-  // Score is deliberately a setup-strength score, not a probability.
-  let score=0, reason=[];
-  if(bearish)score+=15; else return null;
-  if(bodyPct>=55)score+=15;
-  if(bodyAtr>=1.15)score+=20;
-  if(volRatio>=1.5)score+=15;
-  if(rallyPct>=8)score+=10;
-  if(peakAge<=8)score+=10;
-  if(bullishStackBefore)score+=5;
-  if(nearFastCluster||fastCrossing)score+=10;
-  if(stillAbove50)score+=5;
-  if(upperWickPct>=12)score+=5;
-  if(closeInLowerHalf)score+=5;
-  if(rsiCooling)score+=5;
-  score=Math.min(100,score);
-
-  if(rallyPct>=8)reason.push("prior rally/blow-off");
-  if(bodyAtr>=1.15)reason.push("large bearish displacement");
-  if(volRatio>=1.5)reason.push("volume expansion");
-  if(nearFastCluster||fastCrossing)reason.push("EMA14/21 attack");
-  if(stillAbove50)reason.push("EMA50 not fully lost");
-  if(upperWickPct>=12)reason.push("rejection wick");
-  if(rsiCooling)reason.push("RSI cooling");
-
-  // Core qualification: this should look like the early transition,
-  // not just any red candle.
-  const qualifies =
-    bearish &&
-    bodyPct>=45 &&
-    bodyAtr>=0.9 &&
-    volRatio>=1.25 &&
-    rallyPct>=6 &&
-    peakAge<=12 &&
-    (nearFastCluster||fastCrossing) &&
-    stillAbove50 &&
-    score>=65;
-
-  if(!qualifies)return null;
-
-  return {
-    symbol:ticker.symbol,
-    change:num(ticker.priceChangePercent),
-    price:cur.c,
-    score,
-    phase:"PRE-BREAKDOWN",
-    direction:"bearish",
-    bodyPct,
-    bodyAtr,
-    volRatio,
-    rallyPct,
-    rv,
-    e14,e21,e50,e70,e200,
-    emaRelation:cur.c>=e50?"above EMA50":"near/below EMA50",
-    reason:reason.join(" • ")
-  };
+  // Strongest and most recent qualifying event wins.
+  candidates.sort((a,b)=>
+    b.score-a.score ||
+    a.barsAgo-b.barsAgo
+  );
+  return candidates[0];
 }
 
 function detect(c,ticker,direction){
@@ -415,7 +452,7 @@ function render(){
 
   if(state.tab==="prebreak"){
     $("summary").textContent=list.length
-      ? `Found ${list.length} early bearish transition(s). These are warnings before/around EMA14/21 failure, not confirmed breakdowns.`
+      ? `Found ${list.length} early bearish transition(s). These are recent transition events: PRE-BREAKDOWN or the first BREAKDOWN TRIGGER. The detector does not require the latest candle to still be red.`
       : "No early bearish transition found with the current thresholds.";
     rows.innerHTML=list.map((r,i)=>`<tr>
       <td>${i+1}</td><td><b>${r.symbol}</b></td><td class="r">${pct(r.change)}</td>
